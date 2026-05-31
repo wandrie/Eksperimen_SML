@@ -1,0 +1,34 @@
+Nama: Hervan Wandri
+
+EKSPERIMEN SML - CALIFORNIA HOUSING
+
+Dataset: California Housing (fetch_california_housing)
+Jumlah data: 20640 samples
+Fitur: 8 fitur asli + 3 fitur hasil feature engineering
+
+Preprocessing yang dilakukan:
+1. Handling missing values: Impute dengan median (tidak ada missing values)
+2. Penghapusan duplikat: 0 duplikat ditemukan
+3. Feature engineering: Menambahkan RoomsPerHousehold, BedroomsPerRoom, PopulationPerHousehold
+4. Deteksi outlier: Menggunakan IQR method
+5. Penanganan outlier: Clipping dengan batas IQR
+6. Standarisasi: Menggunakan StandardScaler (dilakukan di modelling.py)
+7. Binning: PriceCategory dan IncomeCategory untuk analisis
+
+Model yang digunakan:
+- Linear Regression
+- Ridge Regression (alpha=1.0)
+- Lasso Regression (alpha=0.01)
+- Random Forest Regressor (n_estimators=100)
+- Gradient Boosting Regressor (n_estimators=100)
+- SVR (kernel=rbf)
+
+Best Model: Random Forest Regressor
+Performance:
+- RMSE: 0.5060
+- MAE: 0.3299
+- R² Score: 0.8046
+
+
+Kesimpulan:
+Model Random Forest mampu memprediksi harga rumah di California dengan akurasi R² 80.46%
