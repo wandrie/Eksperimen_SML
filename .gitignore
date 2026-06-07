@@ -8,3 +8,5 @@
 mlflow.db
 membangun model/best_model.pkl
 membangun model/scaler.pkl
+Monitoring dan Logging/prometheus
+Monitoring dan Logging/data/
