@@ -5,7 +5,6 @@
 *.pt
 *.pth
 *.onnx
-best_model.pkl
-scaler.pkl
+mlflow.db
 membangun model/best_model.pkl
 membangun model/scaler.pkl
