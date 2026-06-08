@@ -10,8 +10,3 @@ membangun model/best_model.pkl
 membangun model/scaler.pkl
 Monitoring dan Logging/prometheus
 Monitoring dan Logging/data/
-mlartifacts
-actual_vs_prediksi.png
-feature_importance.png
-residual_plot.png
-screenshoot_artifak.jpg
