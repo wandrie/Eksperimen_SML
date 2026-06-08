@@ -19,7 +19,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 mlflow.set_tracking_uri("http://127.0.0.1:5000/")
 
 # Set experiment name
-mlflow.set_experiment("Sistem Pendeteksi Harga di California")
+mlflow.set_experiment("Sistem Pendeteksi Harga Rumah di California")
 
 # ============================================
 # LOAD DATA

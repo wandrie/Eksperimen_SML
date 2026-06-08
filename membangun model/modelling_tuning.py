@@ -1,155 +1,240 @@
-import pandas as pd
-import numpy as np
+import os
+import json
 import joblib
-import warnings
-warnings.filterwarnings('ignore')
-
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
+import mlflow
+import mlflow.sklearn
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 # ============================================
-# LOAD DATA DAN SCALER
+# MLFLOW CONFIGURATION
 # ============================================
-def load_data_and_scaler():
-    """Memuat data dan scaler dari modelling.py"""
-    from sklearn.model_selection import train_test_split
-    
-    df = pd.read_csv('california_housing_preprocessing/california_housing_processed.csv')
-    
-    # Hapus kolom binning
-    drop_cols = ['PriceCategory', 'IncomeCategory']
-    X = df.drop(columns=['MedHouseVal'] + drop_cols, errors='ignore')
-    y = df['MedHouseVal']
-    
-    # Split data
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
-    
-    # Load scaler dan transform
-    scaler = joblib.load('scaler.pkl')
-    X_train_scaled = scaler.transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    
-    return X_train_scaled, X_test_scaled, y_train, y_test
+
+# Set tracking URI ke localhost
+mlflow.set_tracking_uri("http://127.0.0.1:5000/")
+
+# Set experiment name (Gunakan eksperimen yang sama agar tercatat berdampingan)
+mlflow.set_experiment("Sistem Pendeteksi Harga Rumah di California")
 
 # ============================================
-# TUNING RANDOM FOREST
+# LOAD DATA
 # ============================================
-def tune_random_forest(X_train, y_train):
-    """Hyperparameter tuning untuk Random Forest"""
-    print("\n" + "="*70)
-    print("HYPERPARAMETER TUNING - RANDOM FOREST")
-    print("="*70)
+
+def load_processed_data(base_path='california_housing_preprocessing'):
+    """Membaca data yang sudah bersih, di-scale, dan di-split oleh notebook"""
+    train_path = os.path.join(base_path, "train_processed.csv")
+    test_path = os.path.join(base_path, "test_processed.csv")
+
+    if not os.path.exists(train_path) or not os.path.exists(test_path):
+        raise FileNotFoundError(
+            f"❌ Error: File tidak ditemukan di '{base_path}'. "
+            f"Pastikan notebook preprocessing sudah dieksekusi."
+        )
+        
+    df_train = pd.read_csv(train_path)
+    df_test = pd.read_csv(test_path)
     
-    param_grid = {
-        'n_estimators': [50, 100, 200],
-        'max_depth': [10, 20, 30, None],
-        'min_samples_split': [2, 5, 10],
-        'min_samples_leaf': [1, 2, 4]
+    # Memisahkan Fitur (X) dan Target (y)
+    X_train = df_train.drop(columns=['MedHouseVal'])
+    y_train = df_train['MedHouseVal']
+    
+    X_test = df_test.drop(columns=['MedHouseVal'])
+    y_test = df_test['MedHouseVal']
+    
+    print(f"✅ Data Latih Berhasil Dimuat: {X_train.shape}")
+    print(f"✅ Data Uji Berhasil Dimuat  : {X_test.shape}")
+    return X_train, X_test, y_train, y_test
+
+# ============================================
+# LOG ARTIFACTS
+# ============================================
+
+def log_residual_plot(y_test, y_pred, model_name):
+    plt.figure(figsize=(10, 6))
+    residuals = y_test - y_pred
+    plt.scatter(y_pred, residuals, alpha=0.5, color='darkred')
+    plt.axhline(y=0, color='blue', linestyle='--')
+    plt.xlabel('Prediksi Harga')
+    plt.ylabel('Residuals')
+    plt.title(f'Residual Plot - {model_name}')
+    filename = f'residual_plot_tuning_{model_name.replace(" ", "_")}.png'
+    plt.savefig(filename)
+    plt.close()
+    mlflow.log_artifact(filename)
+    os.remove(filename)
+
+def log_actual_vs_predicted(y_test, y_pred, model_name):
+    plt.figure(figsize=(10, 6))
+    plt.scatter(y_test, y_pred, alpha=0.5, color='forestgreen')
+    plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
+    plt.xlabel('Harga Aktual')
+    plt.ylabel('Prediksi Harga')
+    plt.title(f'Harga Aktual vs Prediksi Harga (Tuned {model_name})')
+    filename = f'actual_vs_prediksi_tuning_{model_name.replace(" ", "_")}.png'
+    plt.savefig(filename)
+    plt.close()
+    mlflow.log_artifact(filename)
+    os.remove(filename)
+
+def log_feature_importance(model, feature_names, model_name):
+    if hasattr(model, 'feature_importances_'):
+        importance = model.feature_importances_
+        indices = np.argsort(importance)[::-1]
+        
+        plt.figure(figsize=(10, 6))
+        plt.title(f'Feature Importance - Tuned {model_name}')
+        plt.bar(range(len(importance)), importance[indices], color='gold')
+        plt.xticks(range(len(importance)), [feature_names[i] for i in indices], rotation=45, ha='right')
+        plt.tight_layout()
+        
+        filename_png = f'feature_importance_tuning_{model_name.replace(" ", "_")}.png'
+        plt.savefig(filename_png)
+        plt.close()
+        mlflow.log_artifact(filename_png)
+        os.remove(filename_png)
+        
+        importance_dict = {feature_names[i]: float(importance[i]) for i in range(len(importance))}
+        filename_json = f'feature_importance_tuning_{model_name.replace(" ", "_")}.json'
+        with open(filename_json, 'w') as f:
+            json.dump(importance_dict, f, indent=2)
+        mlflow.log_artifact(filename_json)
+        os.remove(filename_json)
+
+def log_metrics_info(metrics, model_name):
+    metrics_info = {
+        "model_name": f"Tuned {model_name}",
+        "metrics": metrics,
+        "timestamp": pd.Timestamp.now().isoformat()
     }
+    filename = f'metric_info_tuning_{model_name.replace(" ", "_")}.json'
+    with open(filename, 'w') as f:
+        json.dump(metrics_info, f, indent=2)
+    mlflow.log_artifact(filename)
+    os.remove(filename)
+
+# ============================================
+# TUNING & TRACKING LOGIC
+# ============================================
+
+def tune_and_log_model(X_train, X_test, y_train, y_test, base_model, model_name, param_grid):
+    feature_names = X_train.columns.tolist()
     
-    rf = RandomForestRegressor(random_state=42, n_jobs=-1)
+    # Inisialisasi GridSearchCV dengan Cross Validation 3-Fold
     grid_search = GridSearchCV(
-        rf, param_grid, cv=5, 
-        scoring='neg_mean_squared_error',
-        n_jobs=-1, verbose=1
+        estimator=base_model, 
+        param_grid=param_grid, 
+        cv=3, 
+        scoring='r2', 
+        n_jobs=-1, 
+        verbose=1
     )
     
+    print(f"\n🚀 Mencari kombinasi parameter terbaik untuk {model_name}...")
     grid_search.fit(X_train, y_train)
     
-    print(f"\n✅ Best parameters: {grid_search.best_params_}")
-    print(f"Best CV score: {-grid_search.best_score_:.4f} (RMSE)")
+    best_params = grid_search.best_params_
+    best_model = grid_search.best_estimator_
     
-    return grid_search.best_estimator_
+    print(f"🎯 Parameter Terbaik {model_name}: {best_params}")
+    
+    # Memulai pencatatan ke MLflow Run khusus Tuning
+    run_title = f"Tuned {model_name}"
+    with mlflow.start_run(run_name=run_title):
+        mlflow.log_params(best_params)
+        mlflow.log_param("tuning_method", "GridSearchCV")
+        
+        # Prediksi hasil
+        y_pred_train = best_model.predict(X_train)
+        y_pred_test = best_model.predict(X_test)
+        
+        metrics = {
+            "rmse_train": np.sqrt(mean_squared_error(y_train, y_pred_train)),
+            "rmse_test": np.sqrt(mean_squared_error(y_test, y_pred_test)),
+            "mae_train": mean_absolute_error(y_train, y_pred_train),
+            "mae_test": mean_absolute_error(y_test, y_pred_test),
+            "r2_train": r2_score(y_train, y_pred_train),
+            "r2_test": r2_score(y_test, y_pred_test)
+        }
+        
+        # Mengcatat metrik evaluasi ke MLflow
+        mlflow.log_metrics(metrics)
+        mlflow.sklearn.log_model(best_model, "tuned_model")
+        
+        # Generate & simpan grafik/file json ke artifak MLflow
+        log_residual_plot(y_test, y_pred_test, model_name)
+        log_actual_vs_predicted(y_test, y_pred_test, model_name)
+        log_feature_importance(best_model, feature_names, model_name)
+        log_metrics_info(metrics, model_name)
+        
+        print(f" -> {run_title} sukses dievaluasi dan dicatat ke MLflow.")
+        return best_model, metrics
 
 # ============================================
-# TUNING GRADIENT BOOSTING
+# MAIN 
 # ============================================
-def tune_gradient_boosting(X_train, y_train):
-    """Hyperparameter tuning untuk Gradient Boosting"""
-    print("\n" + "="*70)
-    print("HYPERPARAMETER TUNING - GRADIENT BOOSTING")
-    print("="*70)
-    
-    param_grid = {
-        'n_estimators': [50, 100, 200],
-        'learning_rate': [0.01, 0.05, 0.1],
-        'max_depth': [3, 5, 7],
-        'min_samples_split': [2, 5, 10]
-    }
-    
-    gb = GradientBoostingRegressor(random_state=42)
-    grid_search = GridSearchCV(
-        gb, param_grid, cv=5,
-        scoring='neg_mean_squared_error',
-        n_jobs=-1, verbose=1
-    )
-    
-    grid_search.fit(X_train, y_train)
-    
-    print(f"\n✅ Best parameters: {grid_search.best_params_}")
-    print(f"Best CV score: {-grid_search.best_score_:.4f} (RMSE)")
-    
-    return grid_search.best_estimator_
 
-# ============================================
-# EVALUATE TUNED MODEL
-# ============================================
-def evaluate_model(model, X_test, y_test, model_name="Model"):
-    """Evaluasi model setelah tuning"""
-    y_pred = model.predict(X_test)
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-    r2 = r2_score(y_test, y_pred)
-    
-    print(f"\n📊 {model_name} - Final Evaluation:")
-    print(f"   RMSE: {rmse:.4f}")
-    print(f"   R² Score: {r2:.4f}")
-    
-    return rmse, r2
-
-# ============================================
-# SAVE TUNED MODEL
-# ============================================
-def save_tuned_model(model, filename='best_model_tuned.pkl'):
-    joblib.dump(model, filename)
-    print(f"✅ Tuned model saved as '{filename}'")
-
-# ============================================
-# MAIN
-# ============================================
 if __name__ == "__main__":
-    print("="*70)
-    print("HOUSE PRICE PREDICTION - HYPERPARAMETER TUNING")
-    print("="*70)
+    print("="*50)
+    print("STARTING EXPERIMENT: HYPERPARAMETER TUNING SML")
+    print("="*50)
     
-    # Load data
-    X_train, X_test, y_train, y_test = load_data_and_scaler()
-
-    # Tuning model dasar (Random Forest dan Gradient Boosting) yang sudah dipilih dari modelling.py
-    # Tuning Random Forest
-    best_rf = tune_random_forest(X_train, y_train)
-    evaluate_model(best_rf, X_test, y_test, "Random Forest (Tuned)")
+    # Load data hasil preprocessing
+    X_train, X_test, y_train, y_test = load_processed_data()
     
-    # Tuning Gradient Boosting
-    best_gb = tune_gradient_boosting(X_train, y_train)
-    evaluate_model(best_gb, X_test, y_test, "Gradient Boosting (Tuned)")
+    # Mendefinisikan kandidat model dan grid parameter untuk tuning
+    tuning_candidates = {
+        'Random Forest': {
+            'model': RandomForestRegressor(random_state=42),
+            'grid': {
+                'n_estimators': [100, 150],
+                'max_depth': [10, 15],  # Pembatasan kedalaman untuk mengurangi overfitting
+                'min_samples_split': [5, 10]
+            }
+        },
+        'Gradient Boosting': {
+            'model': GradientBoostingRegressor(random_state=42),
+            'grid': {
+                'n_estimators': [100, 150],
+                'learning_rate': [0.05, 0.1],
+                'max_depth': [4, 6]
+            }
+        }
+    }
     
-    # Pilih yang terbaik
-    rf_rmse, rf_r2 = evaluate_model(best_rf, X_test, y_test, "Random Forest (Tuned)")
-    gb_rmse, gb_r2 = evaluate_model(best_gb, X_test, y_test, "Gradient Boosting (Tuned)")
+    tuning_results = {}
+    best_tuned_model = None
+    best_tuned_r2 = -np.inf
+    best_tuned_model_name = ""
     
-    if rf_rmse < gb_rmse:
-        best_model = best_rf
-        print("\n🏆 Best Tuned Model: Random Forest")
-    else:
-        best_model = best_gb
-        print("\n🏆 Best Tuned Model: Gradient Boosting")
+    # Looping eksekusi pencarian parameter terbaik
+    for model_name, config in tuning_candidates.items():
+        trained_model, metrics = tune_and_log_model(
+            X_train, X_test, y_train, y_test, 
+            config['model'], model_name, config['grid']
+        )
+        tuning_results[model_name] = metrics
+        
+        if metrics['r2_test'] > best_tuned_r2:
+            best_tuned_r2 = metrics['r2_test']
+            best_tuned_model = trained_model
+            best_tuned_model_name = f"Tuned {model_name}"
+            
+    # Simpan berkas model terbaik hasil tuning ke folder lokal tugas
+    output_dir = "saved_models"
+    os.makedirs(output_dir, exist_ok=True)
+    joblib.dump(best_tuned_model, os.path.join(output_dir, 'best_model.pkl'))
     
-    # Save tuned model
-    save_tuned_model(best_model, 'best_model_tuned.pkl')
+    print("\n" + "="*30)
+    print("RINGKASAN EVALUASI AKHIR (HYPERPARAMETER TUNING):")
+    print("="*20)
+    results_df = pd.DataFrame(tuning_results).T
+    print(results_df[['rmse_test', 'r2_test']].sort_values('r2_test', ascending=False))
     
-    print("\n" + "="*70)
-    print("TUNING COMPLETED!")
-    print("="*70)
+    print(f"\n🏆 Model Terbaik Hasil Tuning: {best_tuned_model_name}")
+    print(f"📈 R² Score Tertinggi: {best_tuned_r2:.4f} ({best_tuned_r2*100:.2f}%)")
+    print(f"💾 Model sukses memperbarui '{output_dir}/best_model.pkl' dengan versi parameter optimal!")
+    print("="*50)

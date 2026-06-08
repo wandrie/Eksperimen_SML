@@ -1,4 +1,5 @@
-Nama: Hervan Wandri
+Nama        : Hervan Wandri
+Github Link : https://github.com/wandrie/Eksperimen_SML
 
 EKSPERIMEN SML - CALIFORNIA HOUSING
 
@@ -15,20 +16,54 @@ Preprocessing yang dilakukan:
 6. Standarisasi: Menggunakan StandardScaler (dilakukan di modelling.py)
 7. Binning: PriceCategory dan IncomeCategory untuk analisis
 
-Model yang digunakan:
-- Linear Regression
-- Ridge Regression (alpha=1.0)
-- Lasso Regression (alpha=0.01)
-- Random Forest Regressor (n_estimators=100)
-- Gradient Boosting Regressor (n_estimators=100)
-- SVR (kernel=rbf)
+-------------------------------------------------------------------
+HASIL LOG EKSPERIMEN MODEL (MLflow Tracking)
+-------------------------------------------------------------------
+Berdasarkan eksperimen riwayat pelatihan model yang tercatat pada sistem MLflow UI, berikut adalah hasil evaluasi metrik performa masing-masing algoritma:
 
-Best Model: Random Forest Regressor
-Performance:
-- RMSE: 0.5060
-- MAE: 0.3299
-- R² Score: 0.8046
+Run #1: Baseline Model (Linear Regression)
+- Source    : modelling.py
+- Metrics   : 
+  * RMSE Train : 0.5878 | RMSE Test : 0.5786
+  * MAE Train  : 0.4442 | MAE Test  : 0.4386
+  * R2 Train   : 0.5921 | R2 Test   : 0.5698
 
+Run #2: Lasso Regression (Regularized L1)
+- Source    : modelling.py
+- Metrics   : 
+  * RMSE Train : 0.5922 | RMSE Test : 0.5801
+  * MAE Train  : 0.4469 | MAE Test  : 0.4394
+  * R2 Train   : 0.5859 | R2 Test   : 0.5676
 
-Kesimpulan:
-Model Random Forest mampu memprediksi harga rumah di California dengan akurasi R² 80.46%
+Run #3: Ridge Regression (Regularized L2)
+- Source    : modelling.py
+- Metrics   : 
+  * RMSE Train : 0.5878 | RMSE Test : 0.5786
+  * MAE Train  : 0.4442 | MAE Test  : 0.4385
+  * R2 Train   : 0.5921 | R2 Test   : 0.5698
+
+Run #4: Random Forest Regressor (Ensemble Method)
+- Source    : modelling.py
+- Metrics   : 
+  * RMSE Train : 0.1556 | RMSE Test : 0.4074
+  * MAE Train  : 0.1044 | MAE Test  : 0.2758
+  * R2 Train   : 0.9714 | R2 Test   : 0.7867
+- Catatan   : Model mendapatkan akurasi pengujian tertinggi namun terindikasi Overfitting yang cukup tinggi.
+
+Run #5: Tuned Gradient Boosting Regressor (Hyperparameter Tuning Best)
+- Source    : modelling_tuning.py
+- Parameters: {'learning_rate': 0.1, 'max_depth': 6, 'n_estimators': 150}
+- Metrics   : 
+  * RMSE Test : 0.3691
+  * R2 Test   : 0.8249 (82.49%)
+- Catatan   : Model ini merupakan hasil optimasi GridSearchCV yang berhasil meningkatkan akurasi secara signifikan sekaligus menjaga stabilitas generalisasi data.
+
+-------------------------------------------------------------------
+KESIMPULAN MODEL TERBAIK
+-------------------------------------------------------------------
+Berdasarkan seluruh rangkaian eksperimen dari modelling dasar hingga hyperparameter tuning menggunakan GridSearchCV, model yang resmi dipilih untuk masuk ke tahap produksi (deployment) adalah Tuned Gradient Boosting Regressor (Run #5). 
+
+Model ini terbukti unggul dan mencatatkan nilai R² Score tertinggi sebesar 0.8249 (82.49%) dan tingkat error terkecil (RMSE Test: 0.3691). Proses tuning pada parameter 'max_depth: 6' dan 'n_estimators: 150' berhasil memberikan kekuatan prediksi optimal bagi model untuk menghadapi data baru.
+
+File artifak model terbaik ini telah diekspor dan sukses memperbarui berkas lokal 'saved_models/best_model.pkl'. Model inilah yang sekarang aktif melayani penyiaran metrik di Prometheus Exporter dan divisualisasikan secara dinamis pada dashboard Grafana.
+===================================================================
