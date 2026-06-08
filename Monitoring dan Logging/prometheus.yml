@@ -1,9 +1,0 @@
-global:
-  scrape_interval: 5s # Mengambil data metrik setiap 5 detik sekali
-  evaluation_interval: 5s # Mengevaluasi rule setiap 5 detik sekali
-
-# Lokasi target yang akan ditarik datanya oleh Prometheus
-scrape_configs:
-  - job_name: "california_housing_inference"
-    static_configs:
-      - targets: ["localhost:8000"] # Arahkan ke exporter yang berjalan di localhost port 8000

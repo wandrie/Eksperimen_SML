@@ -1,12 +1,2 @@
-*.pkl
-*.joblib
-*.h5
-*.pb
-*.pt
-*.pth
-*.onnx
-mlflow.db
-membangun model/best_model.pkl
-membangun model/scaler.pkl
-Monitoring dan Logging/prometheus
-Monitoring dan Logging/data/
+preprocessing/test_processed.csv
+preprocessing/train_processed.csv
