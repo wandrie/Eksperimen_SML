@@ -1,6 +1,7 @@
 import os
 import time
 import joblib
+import psutil
 import pandas as pd
 import numpy as np
 from prometheus_client import start_http_server, Counter, Gauge, Histogram
@@ -25,6 +26,17 @@ PREDICTION_LATENCY = Histogram(
     'model_prediction_latency_seconds', 
     'Time taken to process prediction',
     buckets=[0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0]
+)
+
+# Metrik tambahan untuk memantau kesehatan sistem (CPU & RAM)
+CPU_USAGE = Gauge(
+    'system_cpu_usage', 
+    'Persentase penggunaan CPU sistem secara real-time'
+)
+
+RAM_USAGE = Gauge(
+    'system_ram_usage', 
+    'Persentase penggunaan RAM sistem secara real-time'
 )
 
 # ============================================
@@ -92,6 +104,10 @@ if __name__ == "__main__":
             PREDICTION_COUNT.inc()                  # Untuk menghitung total request prediksi
             LAST_PREDICTION_VALUE.set(hasil_prediksi) # Untuk mengupdate angka harga rumah terbaru
             PREDICTION_LATENCY.observe(duration)     # Untuk Mencatat kecepatan durasi ke histogram
+
+            # Memperbarui metrik kesehatan sistem
+            CPU_USAGE.set(psutil.cpu_percent())
+            RAM_USAGE.set(psutil.virtual_memory().percent)
 
             print(f"[{request_id}] Prediksi Berhasil -> MedInc: {random_medinc:.2f} | Estimasi Harga: ${hasil_prediksi:.4f} | Waktu: {duration:.4f}s")
             
