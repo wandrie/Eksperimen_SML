@@ -24,7 +24,7 @@ mlflow.set_experiment("Sistem Pendeteksi Harga Rumah di California")
 # LOAD DATA
 # ============================================
 
-def load_processed_data(base_path='california_housing_preprocessing'):
+def load_processed_data(base_path='preprocessing'):
     """Membaca data yang sudah bersih, di-scale, dan di-split oleh notebook"""
     train_path = os.path.join(base_path, "train_processed.csv")
     test_path = os.path.join(base_path, "test_processed.csv")

@@ -21,20 +21,26 @@ mlflow.set_tracking_uri("http://127.0.0.1:5000/")
 # Set experiment name
 mlflow.set_experiment("Sistem Pendeteksi Harga Rumah di California")
 
+mlflow.sklearn.autolog(log_models=True)
+
 # ============================================
 # LOAD DATA
 # ============================================
 
-def load_processed_data(base_path='california_housing_preprocessing'):
-    """Membaca data yang sudah bersih, di-scale, dan di-split oleh notebook"""
+def load_processed_data(base_path='preprocessing'):
+    """Membaca data dari folder preprocessing"""
     train_path = os.path.join(base_path, "train_processed.csv")
     test_path = os.path.join(base_path, "test_processed.csv")
 
     if not os.path.exists(train_path) or not os.path.exists(test_path):
-        raise FileNotFoundError(
-            f"❌ Error: File tidak ditemukan di '{base_path}'. "
-            f"Pastikan notebook preprocessing sudah dieksekusi."
-        )
+        base_path = "california_housing_preprocessing"
+        train_path = os.path.join(base_path, "train_processed.csv")
+        test_path = os.path.join(base_path, "test_processed.csv")
+        
+        if not os.path.exists(train_path):
+            raise FileNotFoundError(
+                f"❌ Error: File tidak ditemukan. Pastikan data preprocessing diletakkan di folder MLProject."
+            )
         
     df_train = pd.read_csv(train_path)
     df_test = pd.read_csv(test_path)
@@ -46,15 +52,17 @@ def load_processed_data(base_path='california_housing_preprocessing'):
     X_test = df_test.drop(columns=['MedHouseVal'])
     y_test = df_test['MedHouseVal']
     
-    print(f"✅ Data Latih Berhasil Dimuat: {X_train.shape}")
-    print(f"✅ Data Uji Berhasil Dimuat  : {X_test.shape}")
+    print(f"✅ [Autolog] Data Latih Dimuat: {X_train.shape}")
+    print(f"✅ [Autolog] Data Uji Dimuat  : {X_test.shape}")
     return X_train, X_test, y_train, y_test
 
 # ============================================
 # LOG ARTIFACTS
 # ============================================
 
-def log_residual_plot(y_test, y_pred):
+def log_custom_plots(y_test, y_pred, model, feature_names):
+    """Fungsi kustom untuk tetap mencatat visualisasi evaluasi tambahan ke MLflow Artifacts"""
+    # Residual Plot
     plt.figure(figsize=(10, 6))
     residuals = y_test - y_pred
     plt.scatter(y_pred, residuals, alpha=0.5, color='purple')
@@ -66,7 +74,7 @@ def log_residual_plot(y_test, y_pred):
     plt.close()
     mlflow.log_artifact('residual_plot.png')
 
-def log_actual_vs_predicted(y_test, y_pred):
+    # Actual vs Predicted
     plt.figure(figsize=(10, 6))
     plt.scatter(y_test, y_pred, alpha=0.5, color='teal')
     plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
@@ -77,7 +85,7 @@ def log_actual_vs_predicted(y_test, y_pred):
     plt.close()
     mlflow.log_artifact('actual_vs_prediksi.png')
 
-def log_feature_importance(model, feature_names):
+    # Feature importance (hanya untuk model yang mendukung)
     if hasattr(model, 'feature_importances_'):
         importance = model.feature_importances_
         indices = np.argsort(importance)[::-1]
@@ -90,108 +98,76 @@ def log_feature_importance(model, feature_names):
         plt.savefig('feature_importance.png')
         plt.close()
         mlflow.log_artifact('feature_importance.png')
-        
-        importance_dict = {feature_names[i]: float(importance[i]) for i in range(len(importance))}
-        with open('feature_importance.json', 'w') as f:
-            json.dump(importance_dict, f, indent=2)
-        mlflow.log_artifact('feature_importance.json')
-
-def log_metrics_info(metrics, model_name):
-    metrics_info = {
-        "model_name": model_name,
-        "metrics": metrics,
-        "timestamp": pd.Timestamp.now().isoformat()
-    }
-    with open('metric_info.json', 'w') as f:
-        json.dump(metrics_info, f, indent=2)
-    mlflow.log_artifact('metric_info.json')
 
 # ============================================
-# TRAINING & MLFLOW TRACKING LOGIC
+# TRAINING LOGIC (PURE AUTOLOG VERSION)
 # ============================================
-def train_and_log_model(X_train, X_test, y_train, y_test, model, model_name, params=None):
+
+def train_with_autolog(X_train, X_test, y_train, y_test, model, model_name):
     feature_names = X_train.columns.tolist()
     
+    # Memulai run MLflow
     with mlflow.start_run(run_name=model_name):
-        if params:
-            mlflow.log_params(params)
-        
         model.fit(X_train, y_train)
-        
-        y_pred_train = model.predict(X_train)
-        y_pred_test = model.predict(X_test)
-        
-        metrics = {
-            "rmse_train": np.sqrt(mean_squared_error(y_train, y_pred_train)),
-            "rmse_test": np.sqrt(mean_squared_error(y_test, y_pred_test)),
-            "mae_train": mean_absolute_error(y_train, y_pred_train),
-            "mae_test": mean_absolute_error(y_test, y_pred_test),
-            "r2_train": r2_score(y_train, y_pred_train),
-            "r2_test": r2_score(y_test, y_pred_test)
-        }
-        
-        mlflow.log_metrics(metrics)
-        mlflow.sklearn.log_model(model, "model")
-        
-        # Generate & simpan grafik/file json ke artifak MLflow
-        log_residual_plot(y_test, y_pred_test)
-        log_actual_vs_predicted(y_test, y_pred_test)
-        log_feature_importance(model, feature_names)
-        log_metrics_info(metrics, model_name)
-        
-        print(f" -> {model_name} selesai dievaluasi.")
-        return model, metrics
 
-# ============================================
-# MAIN
-# ============================================
+        y_pred_test = model.predict(X_test)
+
+        # Menghitung metrik eksternal untuk perbandingan
+        r2_test = r2_score(y_test, y_pred_test)
+        rmse_test = np.sqrt(mean_squared_error(y_test, y_pred_test))
+        
+        # Log metrik pengujian
+        mlflow.log_metric("r2_test_score", r2_test)
+        mlflow.log_metric("rmse_test_score", rmse_test)
+        
+        # Unggah plot hasil evaluasi ke artifact
+        log_custom_plots(y_test, y_pred_test, model, feature_names)
+        
+        print(f" -> Berhasil: {model_name} diproses penuh oleh MLflow Autolog.")
+        return model, r2_test
+    
+    # ============================================
+    # MAIN
+    # ============================================
 if __name__ == "__main__":
     print("="*50)
-    print("STARTING EXPERIMENT: NO REDUNDANCY MODELLING")
+    print("STARTING EXPERIMENT: PURE MLFLOW AUTOLOG PIPELINE")
     print("="*50)
     
-    # Load data hasil preprocessing
+    # Muat data hasil pembersihan awal
     X_train, X_test, y_train, y_test = load_processed_data()
     
-    # Mendefinisikan kandidat model reguler (Tanpa Tuning)
+    # Kandidat algoritma model
     models = {
-        'Linear Regression': (LinearRegression(), {}),
-        'Ridge Regression': (Ridge(alpha=1.0), {'alpha': 1.0}),
-        'Lasso Regression': (Lasso(alpha=0.01), {'alpha': 0.01}),
-        'Random Forest': (RandomForestRegressor(n_estimators=100, random_state=42), 
-                         {'n_estimators': 100, 'random_state': 42}),
-        'Gradient Boosting': (GradientBoostingRegressor(n_estimators=100, random_state=42),
-                            {'n_estimators': 100, 'random_state': 42})
+        'Linear Regression': LinearRegression(),
+        'Ridge Regression': Ridge(alpha=1.0),
+        'Lasso Regression': Lasso(alpha=0.01),
+        'Random Forest': RandomForestRegressor(n_estimators=100, random_state=42),
+        'Gradient Boosting': GradientBoostingRegressor(n_estimators=100, random_state=42)
     }
     
-    results = {}
     best_model = None
     best_r2 = -np.inf
     best_model_name = ""
     
-    # Looping eksperimen ke MLflow
-    for model_name, (model, params) in models.items():
-        print(f"\n⏳ Menguji model: {model_name}...")
-        trained_model, metrics = train_and_log_model(X_train, X_test, y_train, y_test, model, model_name, params)
-        results[model_name] = metrics
+    # Menjalankan iterasi pelatihan otomatis
+    for model_name, model_obj in models.items():
+        print(f"\n⏳ [Autolog] Melatih & Merekam otomatis: {model_name}...")
+        trained_model, r2_score_test = train_with_autolog(X_train, X_test, y_train, y_test, model_obj, model_name)
         
-        if metrics['r2_test'] > best_r2:
-            best_r2 = metrics['r2_test']
+        # Menentukan model terbaik untuk diekspor ke lokal produksi
+        if r2_score_test > best_r2:
+            best_r2 = r2_score_test
             best_model = trained_model
             best_model_name = model_name
             
-    # Simpan berkas model terbaik secara lokal
+    # Simpan salinan model untuk kebutuhan production serving/inference API
     output_dir = "saved_models"
     os.makedirs(output_dir, exist_ok=True)
     joblib.dump(best_model, os.path.join(output_dir, 'best_model.pkl'))
     
     print("\n" + "="*30)
-    print("RINGKASAN EVALUASI AKHIR:")
-    print("="*20)
-    results_df = pd.DataFrame(results).T
-    print(results_df[['rmse_test', 'r2_test']].sort_values('r2_test', ascending=False))
-    
-    print(f"\n🏆 Model Terbaik: {best_model_name}")
-    print(f"📈 R² Score Termahal: {best_r2:.4f} ({best_r2*100:.2f}%)")
-    print(f"💾 Model sukses diekspor secara lokal ke '{output_dir}/best_model.pkl'")
+    print(f"🏆 Pemenang Eksperimen: {best_model_name}")
+    print(f"📈 R² Test Score      : {best_r2*100:.2f}%")
+    print(f"💾 Model sukses dicatat di MLflow & diekspor ke '{output_dir}/best_model.pkl'")
     print("="*50)
